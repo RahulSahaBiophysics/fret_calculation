@@ -83,7 +83,7 @@ os.makedirs(save_folder, exist_ok=True)
 
 # Plot and save normalized intensity traces
 trace_count = 0  # Initialize the trace counter for all files (no reset between files)
-for file_id, (donor_file, acceptor_file, fret_file) in enumerate(zip(donor_files, acceptor_files, FRET_files), start=1):
+for file_id, (donor_file, acceptor_file, fret_file) in enumerate(zip(donor_files, acceptor_files, FRET_files), start=0):
 
     donor = donor_file.to_numpy()
     acceptor = acceptor_file.to_numpy()
@@ -102,7 +102,7 @@ for file_id, (donor_file, acceptor_file, fret_file) in enumerate(zip(donor_files
         axes[0].plot(range(num_frames), norm_donor, label=f"File {file_id} Trace {i} Donor", color='green')
         axes[0].plot(range(num_frames), norm_acceptor, label=f"File {file_id} Trace {i} Acceptor(direct excitation)", color='purple')
         axes[0].plot(range(num_frames), norm_fret, label=f"File {file_id} Trace {i} Acceptor(FRET)", color='orange')
-        axes[0].set_ylabel("Normalized Intensity")
+        axes[0].set_ylabel("Mean Intensity")
         axes[0].set_title(f"File {file_id} - Trace {i} Intensity & FRET Efficiency")
         axes[0].legend()
 
@@ -111,7 +111,7 @@ for file_id, (donor_file, acceptor_file, fret_file) in enumerate(zip(donor_files
         axes[1].plot(range(num_frames), FRET_efficiency, label=f"File {file_id} Trace {i} FRET efficiency", color='black')
         axes[1].set_xlabel("Frames")
         axes[1].set_ylabel("FRET Efficiency")
-        axes[1].set_ylim(0.3,0.8)
+        axes[1].set_ylim(0,1)
         axes[1].legend()
 
         axes[1].set_xticks(np.arange(0,1001,50))
@@ -129,12 +129,15 @@ for file_id, (donor_file, acceptor_file, fret_file) in enumerate(zip(donor_files
 
     # Interactive widget for FRET selection
     @magicgui(
-        file_index={"widget_type": "SpinBox", "min": 0, "max": len(donor_files) - 1, "step": 1},
+        file_index={"widget_type": "SpinBox", "min": 0, "max": len(donor_files)-1, "step": 1},
         trace_index={"widget_type": "SpinBox", "min": 0, "max": 0, "step": 1},
         donor_start={"widget_type": "Slider", "min": 0, "max": num_frames - 1, "step": 1},
         donor_end={"widget_type": "Slider", "min": 0, "max": num_frames - 1, "step": 1},
         acceptor_start={"widget_type": "Slider", "min": 0, "max": num_frames - 1, "step": 1},
         acceptor_end={"widget_type": "Slider", "min": 0, "max": num_frames - 1, "step": 1},
+        include_for_FRET ={"widget_type": "CheckBox", "label": "Include in FRET Calculation"},
+        gamma_start={"widget_type": "Slider", "min": 0, "max": num_frames - 1, "step": 1},
+        gamma_end={"widget_type": "Slider", "min": 0, "max": num_frames - 1, "step": 1}
     )
     def select_fret_region(
         file_index: int = 0,
@@ -142,10 +145,13 @@ for file_id, (donor_file, acceptor_file, fret_file) in enumerate(zip(donor_files
         donor_start: int = 0,
         donor_end: int = 0,
         acceptor_start: int = 0,
-        acceptor_end: int = 0
+        acceptor_end: int = 0,
+        include_for_FRET: bool = True,
+        gamma_start: int = 0,
+        gamma_end: int = 0,
     ):
         global selected_regions
-        if file_index >= len(donor_files):
+        if file_index > len(donor_files):
             print("invalid file index!")
             return
         
@@ -171,8 +177,8 @@ for file_id, (donor_file, acceptor_file, fret_file) in enumerate(zip(donor_files
         FRET_end = min(donor_end, acceptor_end)
     
         
-        selected_regions[file_index][trace_index] = (donor_start, donor_end, acceptor_start, acceptor_end, FRET_start, FRET_end)
-        print(f"Selected region for File {file_index}, Trace {trace_index}: {FRET_start} - {FRET_end}")
+        selected_regions[file_index][trace_index] = (donor_start, donor_end, acceptor_start, acceptor_end, FRET_start, FRET_end, include_for_FRET, gamma_start, gamma_end)
+        print(f"Selected region for File {file_index}, Trace {trace_index}: donor_start{donor_start}, donor_end {donor_end}, acceptor_start{acceptor_start}, acceptor_end{acceptor_end},Fret region {FRET_start} - {FRET_end}, Include for FRET :{include_for_FRET}")
 
         select_fret_region.donor_start.value = FRET_start
         select_fret_region.donor_end.value = FRET_end
@@ -215,22 +221,23 @@ for file_id, (donor_file, acceptor_file, fret_file) in enumerate(zip(donor_files
             acceptor_2 = acceptor_file_2.to_numpy()
             fret_2 = fret_file_2.to_numpy()
                 
-            for trace_index, (donor_start, donor_end, acceptor_start, acceptor_end, FRET_start, FRET_end) in traces.items():    
+            for trace_index, (donor_start, donor_end, acceptor_start, acceptor_end, FRET_start, FRET_end, include_for_FRET,gamma_start, gamma_end) in traces.items():    
                     print(donor_2.shape)
                     print("trace index", trace_index)
 
-                    donor_selected = donor_2[trace_index, FRET_start:FRET_end]
-                    acceptor_selected = fret_2[trace_index, FRET_start:FRET_end]
+                    if include_for_FRET:
+                        donor_selected = donor_2[trace_index, FRET_start:FRET_end]
+                        acceptor_selected = fret_2[trace_index, FRET_start:FRET_end]
 
-                    fret_values = [calculate_fret(d, a) for d, a in zip(donor_selected, acceptor_selected)]
-                    fret_efficiency_list_apparent.extend(fret_values)
-                    frame_wise_fret.append(fret_values)
+                        fret_values = [calculate_fret(d, a) for d, a in zip(donor_selected, acceptor_selected)]
+                        fret_efficiency_list_apparent.extend(fret_values)
+                        frame_wise_fret.append(fret_values)
 
-                    # Compute mean values
-                    mean_donor = np.mean(donor_selected)
-                    mean_acceptor = np.mean(acceptor_selected)
-                    mean_fret = calculate_fret(mean_donor, mean_acceptor)
-                    mean_fret_list.append(mean_fret)
+                        # Compute mean values
+                        mean_donor = np.mean(donor_selected)
+                        mean_acceptor = np.mean(acceptor_selected)
+                        mean_fret = calculate_fret(mean_donor, mean_acceptor)
+                        mean_fret_list.append(mean_fret)
 
                     donor_fret_end = selected_regions[file_index][trace_index][1]
                     acceptor_fret_end = selected_regions[file_index][trace_index][3]
@@ -244,7 +251,8 @@ for file_id, (donor_file, acceptor_file, fret_file) in enumerate(zip(donor_files
                         alpha_factor = mean_fret_outside_alpha/ mean_donor_outside
                         print("FRET END+1", FRET_end+1)
                         print("alpha:", alpha_factor)
-                        alpha_factor_list.append(alpha_factor)
+                        if 0< alpha_factor< 0.12:
+                            alpha_factor_list.append(alpha_factor)
 
                     if acceptor_fret_end > donor_fret_end:
                         acceptor_outside_fret = acceptor_2[trace_index,FRET_end+1:acceptor_fret_end]
@@ -254,19 +262,21 @@ for file_id, (donor_file, acceptor_file, fret_file) in enumerate(zip(donor_files
                         beta_factor = mean_fret_outside_beta/ mean_acceptor_outside
                         print("FRET END+1", FRET_end+1)
                         print("beta:", beta_factor)
-                        beta_factor_list.append(beta_factor)
+                        if 0< beta_factor < 0.085:
+                            beta_factor_list.append(beta_factor)
 
 
-
-                    # Plot histogram for FRET efficiency per frame
-                    plt.figure(figsize=(8, 6))
-                    plt.hist(fret_values, bins=20, color='green', edgecolor='black')
-                    plt.xlim(0, 1)
-                    plt.xlabel("FRET Efficiency")
-                    plt.ylabel("Frequency")
-                    plt.title(f"Histogram of FRET Efficiency for Trace {trace_index}, Frames {FRET_start}-{FRET_end}")
-                    plt.savefig(os.path.join(save_folder, f"fret_histogram_trace_{trace_index}.png"))
-                    plt.close()
+                    if include_for_FRET:
+                        # Plot histogram for FRET efficiency per frame
+                        bins = np.arange(0, 1.01 ,0.01)
+                        plt.figure(figsize=(8, 6))
+                        plt.hist(fret_values, bins, color='green', edgecolor='black')
+                        plt.xlim(0, 1)
+                        plt.xlabel("FRET Efficiency")
+                        plt.ylabel("Frequency")
+                        plt.title(f"Histogram of FRET Efficiency for Trace {trace_index}, Frames {FRET_start}-{FRET_end}")
+                        plt.savefig(os.path.join(save_folder, f"fret_histogram_frame_{file_index}_trace_{trace_index}.png"))
+                        plt.close()
 
                 
         
@@ -289,9 +299,11 @@ for file_id, (donor_file, acceptor_file, fret_file) in enumerate(zip(donor_files
         mean_fret_df = pd.DataFrame({'Mean FRET Efficiency': mean_fret_list})
         mean_fret_df.to_csv(os.path.join(save_folder, 'mean_fret_efficiency_list.csv'))
 
+        bins = np.arange(0, 1.01 ,0.01)
+
         # Plot histogram of mean FRET efficiency values
         plt.figure(figsize=(8, 6))
-        plt.hist(mean_fret_list, bins=20, color='blue', edgecolor='black')
+        plt.hist(mean_fret_list, bins, color='blue', edgecolor='black')
         plt.xlim(0,1)
         plt.xlabel("apparent FRET Efficiency")
         plt.ylabel("Frequency")
@@ -301,7 +313,7 @@ for file_id, (donor_file, acceptor_file, fret_file) in enumerate(zip(donor_files
 
         # Plot histogram of mean FRET efficiency values
         plt.figure(figsize=(8, 6))
-        plt.hist(fret_efficiency_list_apparent, bins=20, color='blue', edgecolor='black')
+        plt.hist(fret_efficiency_list_apparent, bins, color='blue', edgecolor='black')
         plt.xlim(0,1)
         plt.xlabel("apparent FRET Efficiency")
         plt.ylabel("Frequency")
@@ -338,7 +350,10 @@ for file_id, (donor_file, acceptor_file, fret_file) in enumerate(zip(donor_files
             fret_3 = fret_file_3.to_numpy()
             
                 
-            for trace_index, (donor_start, donor_end, acceptor_start, acceptor_end, FRET_start, FRET_end) in traces.items():    
+            for trace_index, (donor_start, donor_end, acceptor_start, acceptor_end, FRET_start, FRET_end, include_for_FRET, gamma_start, gamma_end) in traces.items():    
+                    if not include_for_FRET:
+                        continue
+
                     print(donor_3.shape)
                     print("trace index", trace_index)
 
@@ -349,13 +364,13 @@ for file_id, (donor_file, acceptor_file, fret_file) in enumerate(zip(donor_files
                     acceptor_fret_end = selected_regions[file_index][trace_index][3]
                     if donor_fret_end > acceptor_fret_end:
 
-                        donor_selected_corect_before = donor_3[trace_index, donor_start:FRET_end]
-                        acceptor_selected_correct_before = acceptor_3[trace_index, donor_start:FRET_end]
-                        fret_selected_correct_before = fret_3[trace_index, donor_start:FRET_end]
+                        donor_selected_corect_before = donor_3[trace_index, gamma_start:FRET_end]
+                        acceptor_selected_correct_before = acceptor_3[trace_index, gamma_start:FRET_end]
+                        fret_selected_correct_before = fret_3[trace_index, gamma_start:FRET_end]
 
-                        donor_selected_corect_after = donor_3[trace_index, FRET_end+1:donor_end]
-                        acceptor_selected_correct_after = acceptor_3[trace_index, FRET_end+1:donor_end]
-                        fret_selected_correct_after = fret_3[trace_index, FRET_end+1:donor_end]
+                        donor_selected_corect_after = donor_3[trace_index, FRET_end+1:gamma_end]
+                        acceptor_selected_correct_after = acceptor_3[trace_index, FRET_end+1:gamma_end]
+                        fret_selected_correct_after = fret_3[trace_index, FRET_end+1:gamma_end]
 
 
                         corrected_acceptor_intensity_values_before = [correct_acceptor(d, a, f, mean_alpha_factor, mean_beta_factor) for d, a, f in zip(donor_selected_corect_before, acceptor_selected_correct_before , fret_selected_correct_before)]
@@ -380,7 +395,8 @@ for file_id, (donor_file, acceptor_file, fret_file) in enumerate(zip(donor_files
 
                         gamma_factor = deltaI_DA/deltaI_DD
                         print(gamma_factor)
-                        gamma_factor_list.append(gamma_factor)
+                        if gamma_factor < 0.98:
+                            gamma_factor_list.append(gamma_factor)
 
         mean_gamma_factor = np.mean(gamma_factor_list) if gamma_factor_list else 1
         print("gamma factor:", mean_gamma_factor)
@@ -415,7 +431,10 @@ for file_id, (donor_file, acceptor_file, fret_file) in enumerate(zip(donor_files
             acceptor_4 = acceptor_file_4.to_numpy()
             fret_4 = fret_file_4.to_numpy()
                 
-            for trace_index, (donor_start, donor_end, acceptor_start, acceptor_end, FRET_start, FRET_end) in traces.items():    
+            for trace_index, (donor_start, donor_end, acceptor_start, acceptor_end, FRET_start, FRET_end, include_for_FRET, gamma_start, gamma_end) in traces.items():
+                    if not include_for_FRET:
+                        continue
+
                     print(donor_4.shape)
                     print("trace index", trace_index)
 
@@ -429,27 +448,29 @@ for file_id, (donor_file, acceptor_file, fret_file) in enumerate(zip(donor_files
 
 
                     # Plot histogram for FRET efficiency per frame
+                    bins = np.arange(0, 1.01 ,0.01)
                     plt.figure(figsize=(8, 6))
-                    plt.hist(fret_values, bins=20, color='green', edgecolor='black')
+                    plt.hist(fret_values, bins, color='green', edgecolor='black')
                     plt.xlim(0, 1)
                     plt.xlabel("corrected FRET Efficiency")
                     plt.ylabel("Frequency")
                     plt.title(f"Histogram of corrected FRET Efficiency for Trace {trace_index}, Frames {FRET_start}-{FRET_end}")
-                    plt.savefig(os.path.join(save_folder, f"corrected fret_histogram_trace_{trace_index}.png"))
+                    plt.savefig(os.path.join(save_folder, f"corrected fret_histogram_trace_file{file_index}trace{trace_index}.png"))
                     plt.close()
 
                     
         # Save FRET efficiency list
         fret_df = pd.DataFrame({'FRET Efficiency': fret_efficiency_list_correted})
-        fret_df.to_csv(os.path.join(save_folder, 'fret_efficiency_list.csv'), index=False)
+        fret_df.to_csv(os.path.join(save_folder, 'fret_efficiency_list_corrected.csv'), index=False)
 
         # Plot histogram of mean FRET efficiency values
+        bins = np.arange(0, 1.01 ,0.01)
         plt.figure(figsize=(8, 6))
-        plt.hist(fret_efficiency_list_correted, bins=20, color='blue', edgecolor='black')
+        plt.hist(fret_efficiency_list_correted, bins, color='blue', edgecolor='black')
         plt.xlim(0,1)
         plt.xlabel("corrected FRET Efficiency")
         plt.ylabel("Frequency")
-        plt.title("Total Histogram of FRET Efficiency")
+        plt.title("Total Histogram of corrected FRET Efficiency")
         plt.savefig(os.path.join(save_folder, "total_corrected_fret_histogram.png"))
         plt.show()
 
